@@ -47,6 +47,20 @@ extern const AP_HAL::HAL &hal;
 #define BMP280_REG_CONFIG    0xF5
 #define BMP280_REG_DATA      0xF7
 
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+// ESP32-P4 bring-up diagnostic (local fork): this baro shares I2C bus 0 with
+// the BMI160, which polls its FIFO at 1kHz, so register reads can
+// occasionally fail. Count them and report once a second from update() (the
+// main loop) - that thread is known to print reliably on this port, unlike
+// the bus thread whose output gets shredded by MAVLink on the shared UART0.
+static uint32_t bmp280_read_errors;
+static uint32_t bmp280_samples;
+static float    bmp280_last_press;
+static uint32_t bmp280_last_errors;
+static uint32_t bmp280_last_samples;
+static uint32_t bmp280_last_ms;
+#endif
+
 AP_Baro_BMP280::AP_Baro_BMP280(AP_Baro &baro, AP_HAL::OwnPtr<AP_HAL::Device> dev)
     : AP_Baro_Backend(baro)
     , _dev(std::move(dev))
@@ -86,7 +100,28 @@ bool AP_Baro_BMP280::_init()
 
     // read the calibration data
     uint8_t buf[24];
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    // Same hazard as in _timer(): the stock code ignores this return value.
+    // On a failed read buf[] is uninitialised stack memory, and the garbage
+    // coefficients would then persist for the whole session and corrupt
+    // EVERY pressure reading. Retry briefly first (the BMI160 is hammering
+    // the same bus, so one transient failure at boot is plausible) and only
+    // then fail the probe - so an unreliable sensor is reported absent rather
+    // than reporting plausible looking rubbish.
+    bool calib_ok = false;
+    for (uint8_t i = 0; i < 5; i++) {
+        if (_dev->read_registers(BMP280_REG_CALIB, buf, sizeof(buf))) {
+            calib_ok = true;
+            break;
+        }
+        hal.scheduler->delay(2);
+    }
+    if (!calib_ok) {
+        return false;
+    }
+#else
     _dev->read_registers(BMP280_REG_CALIB, buf, sizeof(buf));
+#endif
 
     _t1 = ((int16_t)buf[1] << 8) | buf[0];
     _t2 = ((int16_t)buf[3] << 8) | buf[2];
@@ -132,7 +167,25 @@ void AP_Baro_BMP280::_timer(void)
 {
     uint8_t buf[6];
 
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    // ESP32-P4 bring-up (local fork): the stock code ignores this return
+    // value and then feeds buf[] straight into the pressure/temperature
+    // maths. On a failed read buf[] still holds uninitialised stack memory.
+    // That is not contained further down: HAL_BARO_FILTER_DEFAULT is 0, so
+    // pressure_ok() has its range check disabled and accepts anything, and
+    // update() runs far faster than this 50Hz timer so _pressure_count is
+    // usually 1 - meaning ONE bad sample is published directly with no
+    // averaging or rejection. Observed symptom: pressure/altitude jumping to
+    // nonsense (e.g. 0 <-> 3680m, ~642hPa) for a single loop then snapping
+    // back. Skip the sample instead.
+    if (!_dev->read_registers(BMP280_REG_DATA, buf, sizeof(buf))) {
+        bmp280_read_errors++;
+        return;
+    }
+    bmp280_samples++;
+#else
     _dev->read_registers(BMP280_REG_DATA, buf, sizeof(buf));
+#endif
 
     _update_temperature((buf[3] << 12) | (buf[4] << 4) | (buf[5] >> 4));
     _update_pressure((buf[0] << 12) | (buf[1] << 4) | (buf[2] >> 4));
@@ -145,11 +198,36 @@ void AP_Baro_BMP280::update(void)
 {
     WITH_SEMAPHORE(_sem);
 
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    // Report read health once a second. Deliberately placed BEFORE the
+    // early-out below, so it still reports when every read is failing - which
+    // is precisely the case we need to detect.
+    const uint32_t diag_now_ms = AP_HAL::millis();
+    if (bmp280_last_ms == 0) {
+        // first call: start the window now so the first report covers a full
+        // second of real data instead of printing immediately
+        bmp280_last_ms = diag_now_ms;
+    } else if (diag_now_ms - bmp280_last_ms >= 1000) {
+        DEV_PRINTF("BMP280 diag: %u ok/s, %u err/s, press=%.1f hPa, temp=%.1f C\n",
+                   (unsigned)(bmp280_samples - bmp280_last_samples),
+                   (unsigned)(bmp280_read_errors - bmp280_last_errors),
+                   (double)bmp280_last_press,
+                   (double)_temperature);
+        bmp280_last_samples = bmp280_samples;
+        bmp280_last_errors = bmp280_read_errors;
+        bmp280_last_ms = diag_now_ms;
+    }
+#endif
+
     if (_pressure_count == 0) {
         return;
     }
 
-    _copy_to_frontend(_instance, _pressure_sum/_pressure_count, _temperature);
+    const float press = _pressure_sum/_pressure_count;
+    _copy_to_frontend(_instance, press, _temperature);
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    bmp280_last_press = press;
+#endif
     _pressure_count = 0;
     _pressure_sum = 0;
 }

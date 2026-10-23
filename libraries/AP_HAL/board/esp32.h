@@ -17,15 +17,30 @@
 #include "esp32s3devkit.h" //Nick K. on discord
 #elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_ESP32_S3EMPTY
 #include "esp32s3empty.h"
+#elif CONFIG_HAL_BOARD_SUBTYPE == HAL_BOARD_SUBTYPE_ESP32_P4WIFI6
+#include "esp32p4wifi6.h" // Waveshare ESP32-P4-WIFI6 (Pico form factor)
 #else
 #error "Invalid CONFIG_HAL_BOARD_SUBTYPE for esp32"
 #endif
 
 #define HAL_BOARD_NAME "ESP32"
 #define HAL_CPU_CLASS HAL_CPU_CLASS_150
-#define HAL_WITH_DRONECAN 0
+
+// boards can opt in to a CAN interface (e.g. the ESP32-S3 TWAI
+// controller) by defining HAL_NUM_CAN_IFACES in their board header.
+// When enabled this brings in AP_CANManager and DroneCAN support.
+#ifndef HAL_NUM_CAN_IFACES
+#define HAL_NUM_CAN_IFACES 0
+#endif
+
+#ifndef HAL_WITH_DRONECAN
+#define HAL_WITH_DRONECAN (HAL_NUM_CAN_IFACES > 0)
+#endif
 #define HAL_WITH_UAVCAN 0
-#define HAL_MAX_CAN_PROTOCOL_DRIVERS 0
+
+#ifndef HAL_MAX_CAN_PROTOCOL_DRIVERS
+#define HAL_MAX_CAN_PROTOCOL_DRIVERS HAL_NUM_CAN_IFACES
+#endif
 #define HAL_HAVE_SAFETY_SWITCH 0
 #define HAL_HAVE_BOARD_VOLTAGE 0
 #define HAL_HAVE_SERVO_VOLTAGE 0
@@ -50,7 +65,6 @@
 #define HAL_WITH_EKF_DOUBLE HAL_HAVE_HARDWARE_DOUBLE
 #endif
 
-#define HAL_NUM_CAN_IFACES 0
 #define HAL_MEM_CLASS HAL_MEM_CLASS_192
 
 // disable uncommon stuff that we'd otherwise get 

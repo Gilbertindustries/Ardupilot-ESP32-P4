@@ -188,6 +188,29 @@ After flashing the esp32 , u can connect with a terminal app of your preference 
 | GND     | GND       |
 | 5v      | Pwr       |
 
+### CAN bus (DroneCAN):
+
+Supported on the esp32s3devkit and esp32s3empty boards using the ESP32-S3
+TWAI (CAN) controller. A 3.3V CAN transceiver (e.g. SN65HVD230, TJA1051)
+is required between the MCU and the CAN bus:
+
+| ESP32-S3 (devkit) | ESP32-S3 (empty) | CAN transceiver |
+| ---               | ---              | ---             |
+| GPIO12 (TX)       | GPIO12 (TX)      | CTX / CAN_TX    |
+| GPIO13 (RX)       | GPIO15 (RX)      | CRX / CAN_RX    |
+| GND               | GND              | GND             |
+| 5v                | 5v               | Vcc             |
+
+Notes:
+ * the pins are set with HAL_ESP32_CAN_TX_PIN / HAL_ESP32_CAN_RX_PIN in the
+   board header (libraries/AP_HAL_ESP32/boards/), change them there to match
+   your wiring
+ * set HAL_NUM_CAN_IFACES to 0 in the board header to disable CAN entirely
+ * DroneCAN parameters (defaults work out of the box):
+   - CAN_P1_DRIVER = 1 (interface bound to the first protocol driver)
+   - CAN_D1_PROTOCOL = 1 (DroneCAN)
+   - CAN_P1_BITRATE = 1000000 (1M, 800k, 500k, 250k, 125k, 100k, 50k, 25k supported)
+
 
 ### Compass (using i2c)
  - u need to set the ardupilot params, and connected a GPS that has at least one i2c compass on it.. tested this with a HMC5883 and/or LIS3MDL

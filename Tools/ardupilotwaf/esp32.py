@@ -19,7 +19,13 @@ import subprocess
 
 def configure(cfg):
     mcu_esp32s3 = True if (cfg.variant[0:7] == "esp32s3") else False
-    target = "esp32s3" if mcu_esp32s3 else "esp32"
+    mcu_esp32p4 = True if (cfg.variant[0:7] == "esp32p4") else False
+    if mcu_esp32s3:
+        target = "esp32s3"
+    elif mcu_esp32p4:
+        target = "esp32p4"
+    else:
+        target = "esp32"
     bldnode = cfg.bldnode.make_node(cfg.variant)
     def srcpath(path):
         return cfg.srcnode.make_node(path).abspath()

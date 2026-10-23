@@ -13,6 +13,13 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <AP_HAL/AP_HAL_Boards.h>
+// The ESP32-P4 (RISC-V) has no local esp_wifi component in ESP-IDF 5.3:
+// WiFi is served by the ESP32-C6 co-processor via esp_wifi_remote, which
+// needs IDF >= 5.4 and an opt-in HAL_ESP32_WIFI in the board header.
+// Skip compiling this driver on RISC-V until then.
+#if !defined(__riscv) || defined(HAL_ESP32_WIFI)
+
 #include <AP_HAL_ESP32/WiFiDriver.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_HAL_ESP32/Scheduler.h>
@@ -419,3 +426,5 @@ unsigned short WiFiDriver::available_socket()
 
     return WIFI_MAX_CONNECTION;
 }
+
+#endif // !__riscv || HAL_ESP32_WIFI

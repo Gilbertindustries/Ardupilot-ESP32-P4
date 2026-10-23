@@ -58,6 +58,8 @@
 
 #define     BMI160_OSR_NORMAL 0x20
 #define     BMI160_ODR_1600HZ 0x0C
+#define     BMI160_ODR_800HZ 0x0B
+#define     BMI160_ODR_400HZ 0x0A
 
 /* Datasheet says that the device powers up in less than 10ms, so waiting for
  * 10 ms before initialization is enough. */
@@ -73,7 +75,22 @@
 #define BMI160_GYRO_NORMAL_POWER_MODE_DELAY_MSEC 81
 
 #define BMI160_OSR BMI160_OSR_NORMAL
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+/*
+ * ESP32-P4 bring-up (local fork) note:
+ * The stock default runs accel+gyro at 1600Hz into the 1KB FIFO. The 1kHz
+ * _poll_data() bus callback reads only 8 samples (96B) per call, so at
+ * 400kHz I2C it cannot drain 1600Hz x2 (38.4kB/s), the FIFO constantly
+ * overflows and the driver's overflow path FLUSHES + DROPS the unread
+ * samples - starving AP_InertialSensor::wait_for_sample() and tripping
+ * the task watchdog on the ESP32 port. 400Hz ODR drains comfortably at
+ * the 1kHz poll rate. Override with -DBMI160_ODR to move it later.
+ */
+#define BMI160_ODR BMI160_ODR_400HZ
+#else
+/* stock behaviour for every non-P4 target (ESP32-S3 CANBus etc.) */
 #define BMI160_ODR BMI160_ODR_1600HZ
+#endif
 #define BMI160_ACC_RANGE BMI160_ACC_RANGE_16G
 #define BMI160_GYR_RANGE BMI160_GYR_RANGE_2000DPS
 
@@ -365,6 +382,20 @@ void AP_InertialSensor_BMI160::_read_fifo()
 
     static_assert(sizeof(raw_data) <= 100, "Too big to keep on stack");
 
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    // ESP32-P4 bring-up diagnostic: report real FIFO throughput once a
+    // second. This tells "delivering at the configured ODR" apart from
+    // "FIFO empty" and "I2C reads failing" without guessing, and shows
+    // whether the sample stream dies before the board resets.
+    static uint32_t diag_samples;
+    static uint32_t diag_polls;
+    static uint32_t diag_errs;
+    static uint32_t diag_flushes;
+    static uint32_t diag_last_ms;
+    static uint32_t diag_last_samples;
+    diag_polls++;
+#endif
+
     /* If FIFO watermark not surpassed. */
     if (_int1_pin && _int1_pin->read() == 0) {
         goto read_fifo_end;
@@ -403,6 +434,9 @@ read_fifo_read_data:
                             (uint8_t)(excess / sizeof(struct RawData)));
         _dev->write_register(BMI160_REG_CMD, BMI160_CMD_FIFO_FLUSH);
         excess = 0;
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+        diag_flushes++;
+#endif
     }
 
     num_samples = num_bytes / sizeof(struct RawData);
@@ -433,9 +467,37 @@ read_fifo_read_data:
     }
 
 read_fifo_end:
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    diag_samples += num_samples;
+    if (!r) {
+        diag_errs++;
+        DEV_PRINTF("BMI160: error on reading FIFO\n");
+    }
+    const uint32_t diag_now_ms = AP_HAL::millis();
+    if (diag_last_ms == 0) {
+        // First call: start the measurement window now, so the first report
+        // covers a full second of real data. Without this, diag_last_ms is 0
+        // and "now - 0 >= 1000" is already true on the very first poll, which
+        // prints a misleading "1 polls, 0 smp/s" and looks like the FIFO
+        // callback has stopped when it hasn't.
+        diag_last_ms = diag_now_ms;
+    } else if (diag_now_ms - diag_last_ms >= 1000) {
+        DEV_PRINTF("BMI160 diag: %u smp/s, %u polls, %u err, %u flush\n",
+                   (unsigned)(diag_samples - diag_last_samples),
+                   (unsigned)diag_polls,
+                   (unsigned)diag_errs,
+                   (unsigned)diag_flushes);
+        diag_last_samples = diag_samples;
+        diag_last_ms = diag_now_ms;
+        diag_polls = 0;
+        diag_errs = 0;
+        diag_flushes = 0;
+    }
+#else
     if (!r) {
         DEV_PRINTF("BMI160: error on reading FIFO\n");
     }
+#endif
 }
 
 void AP_InertialSensor_BMI160::_poll_data()

@@ -38,6 +38,41 @@
 
 #include "rom/ets_sys.h" // seems to work for both...for now..deprecated
 
+#include "sdkconfig.h"
+
+#ifndef CONFIG_IDF_TARGET_XTENSA
+/*
+ * The bit-bang I2C implementation below pokes at Xtensa-specific GPIO
+ * registers directly and does not build on RISC-V ESP chips such as the
+ * ESP32-P4. On those targets use a hardware I2C bus instead
+ * (.soft=false in HAL_ESP32_I2C_BUSES). These stubs keep the link happy
+ * and fail loudly if a soft bus is accidentally configured.
+ */
+#include <errno.h>
+#include "i2c_sw.h"
+
+void i2c_init(_i2c_bus_t* bus) { (void)bus; }
+void i2c_acquire(_i2c_bus_t* bus) { (void)bus; }
+void i2c_release(_i2c_bus_t* bus) { (void)bus; }
+int i2c_read_reg(_i2c_bus_t* bus, uint16_t addr, uint16_t reg, void *data, uint8_t flags)
+{ (void)bus; (void)addr; (void)reg; (void)data; (void)flags; return -EOPNOTSUPP; }
+int i2c_read_regs(_i2c_bus_t* bus, uint16_t addr, uint16_t reg, void *data, size_t len, uint8_t flags)
+{ (void)bus; (void)addr; (void)reg; (void)data; (void)len; (void)flags; return -EOPNOTSUPP; }
+int i2c_read_byte(_i2c_bus_t* bus, uint16_t addr, void *data, uint8_t flags)
+{ (void)bus; (void)addr; (void)data; (void)flags; return -EOPNOTSUPP; }
+int i2c_read_bytes(_i2c_bus_t* bus, uint16_t addr, void *data, size_t len, uint8_t flags)
+{ (void)bus; (void)addr; (void)data; (void)len; (void)flags; return -EOPNOTSUPP; }
+int i2c_write_byte(_i2c_bus_t* bus, uint16_t addr, uint8_t data, uint8_t flags)
+{ (void)bus; (void)addr; (void)data; (void)flags; return -EOPNOTSUPP; }
+int i2c_write_bytes(_i2c_bus_t* bus, uint16_t addr, const void *data, size_t len, uint8_t flags)
+{ (void)bus; (void)addr; (void)data; (void)len; (void)flags; return -EOPNOTSUPP; }
+int i2c_write_reg(_i2c_bus_t* bus, uint16_t addr, uint16_t reg, uint8_t data, uint8_t flags)
+{ (void)bus; (void)addr; (void)reg; (void)data; (void)flags; return -EOPNOTSUPP; }
+int i2c_write_regs(_i2c_bus_t* bus, uint16_t addr, uint16_t reg, const void *data, size_t len, uint8_t flags)
+{ (void)bus; (void)addr; (void)reg; (void)data; (void)len; (void)flags; return -EOPNOTSUPP; }
+
+#else /* CONFIG_IDF_TARGET_XTENSA */
+
 #include "soc/gpio_reg.h"
 #include "soc/gpio_struct.h"
 
@@ -725,3 +760,5 @@ int i2c_write_reg(_i2c_bus_t* bus, uint16_t addr, uint16_t reg,
 {
     return i2c_write_regs(bus, addr, reg, &data, 1, flags);
 }
+
+#endif /* CONFIG_IDF_TARGET_XTENSA */

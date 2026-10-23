@@ -65,6 +65,15 @@ I2CDevice::I2CDevice(uint8_t busnum, uint8_t address, uint32_t bus_clock, bool u
 {
     set_device_bus(busnum);
     set_device_address(address);
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+    // ESP32-P4 bring-up: a marginal bus throws errors that each cost up to
+    // ~4ms of i2c_master_cmd_begin timeout. With the stock 10 retries a
+    // single bad FIFO read stalls the 1kHz BMI160 poll for ~40ms, the FIFO
+    // overflows and the driver flushes+drops samples - starvation that ends
+    // in the task watchdog abort. 3 quick tries keep a flaky bus from
+    // wedging the IMU stream; the FIFO survives a 12ms gap fine at 400Hz.
+    _retries = 3;
+#endif
     asprintf(&pname, "I2C:%u:%02x",
              (unsigned)busnum, (unsigned)address);
 }
@@ -119,6 +128,20 @@ bool I2CDevice::transfer(const uint8_t *send, uint32_t send_len,
         i2c_master_stop(cmd);
 
         TickType_t timeout = 1 + 16L * (send_len + recv_len) * 1000 / bus.bus_clock / portTICK_PERIOD_MS;
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
+        // ESP32-P4 bring-up: the formula above yields 1 tick for short
+        // transfers, and a 1-tick wait can expire at the NEXT tick (0-1ms)
+        // even though the hardware needs only ~150us. The bus thread
+        // (prio 5) is also preempted by the prio 23/24 tasks, so healthy
+        // transfers were reported as ESP_ERR_TIMEOUT, triggering IDF's
+        // ~50ms (and on P4 failing) bus-clear -> BMI160 FIFO overflow.
+        // A healthy transfer returns as soon as it completes, so a
+        // generous floor costs nothing.
+        const TickType_t min_timeout = pdMS_TO_TICKS(20);
+        if (timeout < min_timeout) {
+            timeout = min_timeout;
+        }
+#endif
         for (int i = 0; !result && i < _retries; i++) {
             result = (i2c_master_cmd_begin(bus.port, cmd, timeout) == ESP_OK);
             if (!result) {

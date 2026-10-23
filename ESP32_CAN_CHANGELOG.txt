@@ -1,0 +1,108 @@
+================================================================================
+CHANGELOG: CAN bus / DroneCAN support for ESP32-S3
+Date: 2026-10-05
+Status: implemented, build-tested, NOT yet hardware-tested, uncommitted
+================================================================================
+
+SUMMARY
+-------
+Added CAN bus support for ESP32-S3 boards using the ESP32-S3 TWAI (CAN)
+peripheral via the ESP-IDF TWAI driver, which enables the full DroneCAN
+stack (AP_CANManager + AP_DroneCAN) on ESP32-S3 for the first time.
+Enabled on both S3 boards: esp32s3devkit and esp32s3empty.
+
+NEW FILES (2)
+-------------
+libraries/AP_HAL_ESP32/CANIface.h   (137 lines)
+  - ESP32::CANIface, an AP_HAL::CANIface implementation backed by TWAI
+  - requires HAL_ESP32_CAN_TX_PIN / HAL_ESP32_CAN_RX_PIN from board header
+  - typedef ESP32::CANIface HAL_CANIface (used by AP_CANManager)
+  - static_assert(HAL_NUM_CAN_IFACES == 1): S3 has one TWAI controller
+
+libraries/AP_HAL_ESP32/CANIface.cpp  (384 lines)
+  - init(): twai_driver_install + twai_start; bitrate -> timing config for
+    1M/800k/500k/250k/125k/100k/50k/25k; SilentMode -> listen-only
+  - send()/receive(): hardware queue <-> software RX queue (64 frames),
+    invokes base-class callbacks (MAVLink CAN frame forward/logging)
+  - select()/set_event_handle(): readiness flags + blocking waits on the
+    DroneCAN event semaphore
+  - FreeRTOS alert task: turns TWAI alerts (RX data, TX drained, bus-off)
+    into semaphore wakeups; automatic bus-off recovery via
+    twai_initiate_recovery() + twai_start() on BUS_RECOVERED
+  - stats (get_stats/get_statistics) feeding DroneCAN iface-down logic
+  - guarded by #if HAL_NUM_CAN_IFACES > 0 (empty TU on non-CAN boards)
+
+MODIFIED FILES (8)
+------------------
+libraries/AP_HAL/board/esp32.h
+  - HAL_NUM_CAN_IFACES, HAL_MAX_CAN_PROTOCOL_DRIVERS, HAL_WITH_DRONECAN
+    are now board-overridable (#ifndef); defaults unchanged (CAN off)
+
+libraries/AP_HAL_ESP32/boards/esp32s3devkit.h
+  - HAL_NUM_CAN_IFACES 1, HAL_CAN_DRIVER_DEFAULT 1 (CAN_P1_DRIVER=1 default)
+  - pins: TX=GPIO_NUM_12, RX=GPIO_NUM_13 (all overridable)
+  - PRE-EXISTING BUILD FIX: ADC1_CHANNEL_x -> ADC_CHANNEL_x (legacy names
+    removed in ESP-IDF 5.3; board did not compile before this)
+
+libraries/AP_HAL_ESP32/boards/esp32s3empty.h
+  - HAL_NUM_CAN_IFACES 1, HAL_CAN_DRIVER_DEFAULT 1
+  - pins: TX=GPIO_NUM_12, RX=GPIO_NUM_15 (GPIO13 is I2C SDA on this board)
+
+libraries/AP_HAL_ESP32/HAL_ESP32_Namespace.h
+  - forward declaration of ESP32::CANIface
+
+libraries/AP_HAL_ESP32/HAL_ESP32_Class.cpp
+  - preallocates the CANIface instance and passes the iface array to the
+    HAL constructor when HAL_NUM_CAN_IFACES > 0
+
+libraries/AP_CANManager/AP_CANManager.cpp
+  - added #elif CONFIG_HAL_BOARD == HAL_BOARD_ESP32 include branch
+
+Tools/ardupilotwaf/boards.py
+  - esp32.configure_env: detects HAL_NUM_CAN_IFACES in the board header ->
+    sets with_can, env.HAL_NUM_CAN_IFACES, CANARD_MULTI_IFACE,
+    CANARD_IFACE_ALL (brings in AP_DroneCAN, libcanard, DSDL codegen)
+  - esp32.pre_build: restores with_can at build time (the board object is
+    recreated every waf run; same pattern ChibiOS uses)
+
+libraries/AP_HAL_ESP32/README.md
+  - new "CAN bus (DroneCAN)" section: wiring table, pin config, params,
+    how to disable
+
+REVIEW FIXES (after initial green builds)
+-----------------------------------------
+1. Removed use of TWAI_ALERT_TX_QUEUE_FULL (does not exist in ESP-IDF 5.3)
+2. Race fix: removed the cached tx_queue_full_ flag. A full-queue timeout
+   in send() could race with a concurrent TX-drain alert and leave the flag
+   stuck true, permanently blocking TX. twai_transmit() is now the ground
+   truth for space; TX alerts unconditionally wake retrying senders.
+
+BUILD VALIDATION (WSL, ESP-IDF 5.3.1, ./waf configure + ./waf copter)
+---------------------------------------------------------------------
+  esp32s3devkit  : SUCCESS (final firmware 0x216b80)
+  esp32s3empty   : SUCCESS (final firmware 0x1cc400)
+  esp32buzz      : SUCCESS (non-CAN regression; 941 vs 1146 tasks proves
+                   DroneCAN/CAN libs correctly excluded for non-CAN boards)
+  Firmware contains: twai_*, ESP32::CANIface::alert_task, canardInit,
+  AP_CANManager, DroneCAN/CANMGR strings. No warnings from new files.
+
+USAGE
+-----
+  wiring: ESP32-S3 TX/RX -> transceiver CTX/CRX (3.3V part, e.g. SN65HVD230)
+          + GND + 3.3V, 120 ohm termination at each bus end
+  params (work out of the box):
+    CAN_P1_DRIVER   = 1
+    CAN_D1_PROTOCOL = 1 (DroneCAN)
+    CAN_P1_BITRATE  = 1000000 (1M/800k/500k/250k/125k/100k/50k/25k)
+  disable: set HAL_NUM_CAN_IFACES 0 in the board header
+
+KNOWN LIMITATIONS
+-----------------
+  - no hardware / live-bus test performed yet
+  - classic CAN only (TWAI has no CAN-FD), single interface only
+  - unsupported CAN_P1_BITRATE values make iface init fail (logged)
+  - per-frame tx_deadline not enforced inside the 16-frame HW tx queue
+  - temporary build helper scripts live in /tmp (ap_build_*.sh), not in repo
+
+FILES TOUCHED: 8 modified, 2 new. Nothing committed to git.
+================================================================================

@@ -20,4 +20,5 @@ class GPIO;
 class DigitalSource;
 class Storage;
 class RmtSigReader;
+class CANIface;
 }  // namespace ESP32

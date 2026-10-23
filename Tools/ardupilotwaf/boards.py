@@ -608,9 +608,10 @@ def add_dynamic_boards_esp32():
             continue
         hwdef = os.path.join(dirname, d, 'hwdef.dat')
         if os.path.exists(hwdef):
-            mcu_esp32s3 = True if (d[0:7] == "esp32s3") else False
-            if mcu_esp32s3:
+            if d[0:7] == "esp32s3":
                 newclass = type(d, (esp32s3,), {'name': d})
+            elif d[0:7] == "esp32p4":
+                newclass = type(d, (esp32p4,), {'name': d})
             else:
                 newclass = type(d, (esp32,), {'name': d})
 
@@ -1008,6 +1009,17 @@ class esp32(Board):
     def configure_env(self, cfg, env):
         env.BOARD_CLASS = "ESP32"
 
+        # CAN (DroneCAN) support is opt-in per board by defining
+        # HAL_NUM_CAN_IFACES in the board header. Pick that up so the
+        # CAN libraries and canard defines are added to the build.
+        board_header = cfg.srcnode.make_node(
+            'libraries/AP_HAL_ESP32/boards/%s.h' % self.get_name())
+        if board_header.exists():
+            match = re.search(r'#define\s+HAL_NUM_CAN_IFACES\s+(\d+)', board_header.read())
+            if match and int(match.group(1)) > 0:
+                self.with_can = True
+                env.HAL_NUM_CAN_IFACES = int(match.group(1))
+
         def expand_path(p):
             print("USING EXPRESSIF IDF:"+str(env.idf))
             return cfg.root.find_dir(env.IDF+p).abspath()
@@ -1021,6 +1033,13 @@ class esp32(Board):
         env.DEFINES.update(
             CONFIG_HAL_BOARD = 'HAL_BOARD_ESP32',
         )
+
+        if self.with_can:
+            # canard multi-interface support, one bit per CAN interface
+            env.DEFINES.update(
+                CANARD_MULTI_IFACE = 1,
+                CANARD_IFACE_ALL = (1 << int(env.HAL_NUM_CAN_IFACES)) - 1,
+            )
 
         tt = self.name[5:] #leave off 'esp32' so we just get 'buzz','diy','icarus, etc
 
@@ -1090,6 +1109,10 @@ class esp32(Board):
         #                     '-DENABLE_PROFILE=1']
     def pre_build(self, bld):
         '''pre-build hook that gets called before dynamic sources'''
+        # the board object is recreated for every waf run, so restore the
+        # CAN opt-in that was detected from the board header at configure time
+        if bld.env.HAL_NUM_CAN_IFACES:
+            self.with_can = True
         from waflib.Context import load_tool
         module = load_tool('esp32', [], with_sys_path=True)
         fun = getattr(module, 'pre_build', None)
@@ -1108,6 +1131,32 @@ class esp32(Board):
 class esp32s3(esp32):
     abstract = True
     toolchain = 'xtensa-esp32s3-elf'
+
+class esp32p4(esp32):
+    '''ESP32-P4 (dual-core RISC-V, no on-chip radio; WiFi via an ESP32-C6
+    co-processor using esp_wifi_remote, which requires ESP-IDF >= 5.4)'''
+    abstract = True
+    toolchain = 'riscv32-esp-elf'
+    # the riscv32-esp-elf compiler defaults to the soft-float ABI, but the
+    # ESP-IDF components for esp32p4 are built with hardware single
+    # precision float (see modules/esp_idf/tools/cmake/toolchain-esp32p4.cmake);
+    # the two ABIs cannot be linked together so match them exactly
+    riscv_float_flags = [
+        '-march=rv32imafc_zicsr_zifencei_xesppie',
+        '-mabi=ilp32f',
+    ]
+    def configure_env(self, cfg, env):
+        super(esp32p4, self).configure_env(cfg, env)
+        # -mlongcalls is Xtensa-specific and the RISC-V gcc rejects it
+        for flag in ('-mlongcalls',):
+            while flag in env.CFLAGS:
+                env.CFLAGS.remove(flag)
+            while flag in env.CXXFLAGS:
+                env.CXXFLAGS.remove(flag)
+        env.CFLAGS += self.riscv_float_flags
+        env.CXXFLAGS += self.riscv_float_flags
+        env.ASFLAGS += self.riscv_float_flags
+        env.LINKFLAGS += self.riscv_float_flags
 
 class chibios(Board):
     abstract = True

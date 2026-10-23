@@ -2115,15 +2115,31 @@ check_sample:
                     ((accel_available_mask & _accel_wait_mask) == _accel_wait_mask)) {
                     break;
                 }
+            } else if (gyro_available_mask && accel_available_mask) {
+                // reset the wait mask so we don't keep delaying
+                // for a dead IMU on the next loop. As soon as it
+                // comes back we will start waiting on it again
+                _gyro_wait_mask &= gyro_available_mask;
+                _accel_wait_mask &= accel_available_mask;
+                break;
+#ifdef HAL_ESP32_P4WIFI6_BRINGUP
             } else {
-                if (gyro_available_mask && accel_available_mask) {
-                    // reset the wait mask so we don't keep delaying
-                    // for a dead IMU on the next loop. As soon as it
-                    // comes back we will start waiting on it again
-                    _gyro_wait_mask &= gyro_available_mask;
-                    _accel_wait_mask &= accel_available_mask;
-                    break;
-                }
+                // ESP32-P4 bring-up (local fork): no backend produced ANY
+                // sample in this wait window (sensor absent, probe failed
+                // or bus wedged). Pace the main loop at ~loop rate instead
+                // of spinning forever - otherwise APM_MAIN never returns to
+                // feed the task watchdog and the board aborts 3s after the
+                // loop starts. Fires only when there is NO data at all, so
+                // a live IMU is unaffected. Non-P4 targets keep stock.
+                //
+                // NOTE: this MUST break. Without it the surrounding
+                // while(true) never exits, AP_Scheduler::loop() never
+                // returns, and APM_MAIN never reaches esp_task_wdt_reset()
+                // (trigger_panic=true, 3s timeout) - so the board panics and
+                // resets in a loop instead of just carrying on with an
+                // unhealthy IMU.
+                break;
+#endif
             }
 
             hal.scheduler->delay_microseconds_boost(wait_per_loop);

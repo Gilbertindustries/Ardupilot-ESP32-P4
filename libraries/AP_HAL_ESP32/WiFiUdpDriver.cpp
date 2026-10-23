@@ -13,6 +13,11 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <AP_HAL/AP_HAL_Boards.h>
+// see WiFiDriver.cpp: no local esp_wifi on the ESP32-P4 (RISC-V) in
+// ESP-IDF 5.3, so this driver is skipped there unless the board opts in
+#if !defined(__riscv) || defined(HAL_ESP32_WIFI)
+
 #include <AP_HAL_ESP32/WiFiUdpDriver.h>
 #include <AP_Math/AP_Math.h>
 #include <AP_HAL_ESP32/Scheduler.h>
@@ -365,3 +370,5 @@ bool WiFiUdpDriver::_discard_input()
 {
     return false;
 }
+
+#endif // !__riscv || HAL_ESP32_WIFI

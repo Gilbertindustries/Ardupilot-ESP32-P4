@@ -26,6 +26,25 @@
 
 #define HAL_ESP32_BOARD_NAME "esp32s3empty"
 
+// CAN bus (DroneCAN) using the ESP32-S3 TWAI (CAN) peripheral.
+// set HAL_NUM_CAN_IFACES to 0 to disable CAN/DroneCAN on this board
+#ifndef HAL_NUM_CAN_IFACES
+#define HAL_NUM_CAN_IFACES 1
+#endif
+// bind interface 1 to the DroneCAN driver by default (CAN_P1_DRIVER param)
+#ifndef HAL_CAN_DRIVER_DEFAULT
+#define HAL_CAN_DRIVER_DEFAULT 1
+#endif
+// TX/RX GPIOs for the CAN transceiver, change to match your wiring.
+// GPIO 12/15 are free on this board (not used by RCOUT 6-11, I2C 13/14,
+// RCIN 14, UART1 17/18 or UART0 43/44)
+#ifndef HAL_ESP32_CAN_TX_PIN
+#define HAL_ESP32_CAN_TX_PIN GPIO_NUM_12
+#endif
+#ifndef HAL_ESP32_CAN_RX_PIN
+#define HAL_ESP32_CAN_RX_PIN GPIO_NUM_15
+#endif
+
 #define HAL_ESP32_RMT_RX_PIN_NUMBER GPIO_NUM_14
 
 // no sensors

@@ -20,7 +20,24 @@
 
 #include "SdCard.h"
 
+// the fatfs headers use MAX()/MIN() in a preprocessor #if; AP_Math.h above
+// has #undef'd the sys/param.h macros in favour of C++ templates, so
+// provide fallbacks around just the fatfs include, then restore state
+// (same workaround as AP_Filesystem_ESP32.h)
+#ifndef MAX
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#define AP_FATFS_RESTORE_MINMAX
+#endif
+#ifndef MIN
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define AP_FATFS_RESTORE_MINMAX
+#endif
 #include "esp_vfs_fat.h"
+#ifdef AP_FATFS_RESTORE_MINMAX
+#undef MAX
+#undef MIN
+#undef AP_FATFS_RESTORE_MINMAX
+#endif
 #include "esp_ota_ops.h"
 
 #include "driver/sdmmc_host.h"

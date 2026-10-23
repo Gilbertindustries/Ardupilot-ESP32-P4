@@ -10,7 +10,27 @@
 #include <dirent.h>
 #include "esp_err.h"
 #include "esp_log.h"
+// the fatfs headers use MAX()/MIN() in a preprocessor #if. On some targets
+// (e.g. ESP32-P4) sys/param.h has already been included by an earlier
+// header and AP_Math.h has #undef'd its MAX/MIN macros in favour of C++
+// templates, leaving ffconf.h's #include <sys/param.h> a no-op. Provide
+// fallbacks around just the fatfs include so compilation succeeds
+// regardless of include order, then restore the previous state so the
+// fallbacks cannot shadow AP_Math's C++ MIN/MAX templates.
+#ifndef MAX
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#define AP_FATFS_RESTORE_MINMAX
+#endif
+#ifndef MIN
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define AP_FATFS_RESTORE_MINMAX
+#endif
 #include "esp_vfs_fat.h"
+#ifdef AP_FATFS_RESTORE_MINMAX
+#undef MAX
+#undef MIN
+#undef AP_FATFS_RESTORE_MINMAX
+#endif
 #include "driver/sdmmc_host.h"
 #include "driver/sdspi_host.h"
 #include "sdmmc_cmd.h"

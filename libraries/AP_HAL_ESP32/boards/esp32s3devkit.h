@@ -37,6 +37,25 @@
 
 #define HAL_ESP32_BOARD_NAME "esp32s3devkit"
 
+// CAN bus (DroneCAN) using the ESP32-S3 TWAI (CAN) peripheral.
+// set HAL_NUM_CAN_IFACES to 0 to disable CAN/DroneCAN on this board
+#ifndef HAL_NUM_CAN_IFACES
+#define HAL_NUM_CAN_IFACES 1
+#endif
+// bind interface 1 to the DroneCAN driver by default (CAN_P1_DRIVER param)
+#ifndef HAL_CAN_DRIVER_DEFAULT
+#define HAL_CAN_DRIVER_DEFAULT 1
+#endif
+// TX/RX GPIOs for the CAN transceiver, change to match your wiring.
+// GPIO 12/13 are free on this board (not used by RCOUT 6-11, RCIN/RMT 14,
+// I2C 15/16, SDMMC 14/15/2, UART1 17/18, SPI 34-37, UART0 43/44 or ADC 1/2/4/5)
+#ifndef HAL_ESP32_CAN_TX_PIN
+#define HAL_ESP32_CAN_TX_PIN GPIO_NUM_12
+#endif
+#ifndef HAL_ESP32_CAN_RX_PIN
+#define HAL_ESP32_CAN_RX_PIN GPIO_NUM_13
+#endif
+
 #define HAL_ESP32_RMT_RX_PIN_NUMBER GPIO_NUM_14
 
 //#define CONFIG_HAL_BOARD 12
@@ -88,10 +107,10 @@
 //
 // two different pin numbering schemes, both are ok, but only one at a time:
 #define HAL_ESP32_ADC_PINS_OPTION1 {\
-	{ADC1_CHANNEL_4, 11, 1},\
-	{ADC1_CHANNEL_3, 11, 2},\
-	{ADC1_CHANNEL_1, 11, 3},\
-	{ADC1_CHANNEL_0, 11, 4}\
+	{ADC_CHANNEL_4, 11, 1},\
+	{ADC_CHANNEL_3, 11, 2},\
+	{ADC_CHANNEL_1, 11, 3},\
+	{ADC_CHANNEL_0, 11, 4}\
 }
 #define HAL_ESP32_ADC_PINS_OPTION2 {\
 	{ADC1_GPIO35_CHANNEL, 11, 35},\

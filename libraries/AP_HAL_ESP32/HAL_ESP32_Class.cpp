@@ -29,6 +29,7 @@
 #include "Storage.h"
 #include "AnalogIn.h"
 #include "Util.h"
+#include "CANIface.h"
 #if AP_SIM_ENABLED
 #include <AP_HAL/SIMState.h>
 #endif
@@ -82,6 +83,11 @@ static ESP32::Util utilInstance;
 static Empty::OpticalFlow opticalFlowDriver;
 static Empty::Flash flashDriver;
 
+#if HAL_NUM_CAN_IFACES > 0
+static ESP32::CANIface canIface0;
+static AP_HAL::CANIface* can_ifaces[HAL_NUM_CAN_IFACES] = { &canIface0 };
+#endif
+
 #if AP_SIM_ENABLED
 static AP_HAL::SIMState xsimstate;
 #endif
@@ -119,7 +125,11 @@ HAL_ESP32::HAL_ESP32() :
 #if HAL_WITH_DSP
         &dspDriver,
 #endif
+#if HAL_NUM_CAN_IFACES > 0
+        can_ifaces
+#else
         nullptr
+#endif
     )
 {}
 
