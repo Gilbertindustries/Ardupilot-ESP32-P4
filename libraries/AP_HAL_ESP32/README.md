@@ -1,6 +1,96 @@
 
 # Ardupilot port to the esp32 series mcu
 
+## ESP32-P4 port (Waveshare ESP32-P4-WIFI6)
+
+A work-in-progress port of ArduPilot (Copter) to the **Waveshare
+ESP32-P4-WIFI6** board. Board target name: **`esp32p4wifi6`**.
+
+### Hardware
+
+| | |
+|---|---|
+| MCU | ESP32-P4, dual-core RISC-V HP @ 400 MHz |
+| Memory | 32 MB in-package PSRAM @ 200 MHz, 32 MB NOR flash |
+| Radio | none on the P4 - WiFi 6 / BLE is provided by the onboard ESP32-C6 over SDIO |
+| Console | CH343 USB-serial on UART0 (TX GPIO37 / RX GPIO38) |
+
+### What works
+
+- Boots cleanly on ESP-IDF v5.5.4 - no watchdog or abort loops
+- MAVLink over UART0, connects to Mission Planner
+- BMI160 IMU on I2C0, gyro/accel and attitude live in Mission Planner
+- BMP280 barometer on I2C0, reading plausible pressure and temperature
+
+### Known issues
+
+- Barometer altitude drops to 0 m if the board is physically disturbed
+- The BMP280 reports many more reads/second than the driver requests (unexplained)
+- ESP32-C6 WiFi is not enabled yet
+- No SD card or flash logging - console and MAVLink only
+- RC output pins, and the UART1/UART2 pin choices, are placeholders pending a
+  check against the Waveshare schematic
+
+### Sensors (all on I2C0)
+
+| Signal | GPIO |
+|---|---|
+| SCL | GPIO8 |
+| SDA | GPIO7 |
+
+| Sensor | Address |
+|---|---|
+| BMI160 IMU | 0x69, falls back to 0x68 |
+| BMP280 baro | 0x76 or 0x77, both are probed |
+
+Two things to watch when re-wiring:
+
+- **GPIO8 is the ESP32-P4 SPI-boot strapping pin.** The I2C pull-ups hold it
+  high at reset, which is what a normal flash boot needs. Don't drive it low.
+- Never put an I2C pin in `HAL_ESP32_RCOUT`. `RCOutput::init()` claims those
+  pins for MCPWM and would take the bus line over.
+
+### Build
+
+Needs ESP-IDF **v5.5.4** and the matching `riscv32-esp-elf` toolchain.
+
+```bash
+source modules/esp_idf/export.sh
+./waf configure --board esp32p4wifi6
+./waf copter
+```
+
+Use `./waf copter`, not `./waf build`. The plain `build` command does not select
+a vehicle, so the ESP-IDF link step gets no ArduPilot libraries and fails with
+`undefined reference to main`.
+
+### Flash
+
+Flash all three files using `--flash_mode dio --flash_freq 80m --flash_size 32MB`:
+
+| File | Offset |
+|---|---|
+| `bootloader/bootloader.bin` | `0x2000` |
+| `partition_table/partition-table.bin` | `0x10000` |
+| `ardupilot.bin` | `0x20000` |
+
+### ESP-IDF version matters here
+
+This board carries an ESP32-P4 rev 3.x (ECO7) die, which needs **ESP-IDF 5.5.x**.
+On 5.3.x there is no ECO7 support at all, and the second-stage bootloader dies
+in `uart_ll_set_baudrate()` with a watchdog reset loop that looks exactly like a
+firmware bug.
+
+`Tools/scripts/esp32_get_idf.sh` is patched to pin v5.5.4. Don't run it in its
+original form and don't check it back out - the stock version pins the 5.3.1-era
+commit and will silently downgrade `modules/esp_idf`.
+
+### Notes for maintainers
+
+Fixes that touch shared library code are gated on `HAL_ESP32_P4WIFI6_BRINGUP`,
+defined in `libraries/AP_HAL_ESP32/boards/esp32p4wifi6.h`, so other ESP32
+targets keep stock behaviour. The BMI160 and BMP280 bring-up diagnostics
+(`BMI160 diag:` / `BMP280 diag:` lines) are behind the same define.
 
 ## Building instructions
 0. Build currently tested on linux
