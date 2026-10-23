@@ -1,0 +1,6 @@
+nf = non functiona
+f = functional
+sf = somewhat functional 
+build 1f core
+build 5f imu
+build 6+ baro 
